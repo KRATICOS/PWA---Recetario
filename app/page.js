@@ -45,6 +45,29 @@ export default function Home() {
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [errorDetalle, setErrorDetalle] = useState("");
 
+  // Notificaciones Toast
+  const [toast, setToast] = useState(null);
+
+  // Cerrar automáticamente las notificaciones después de 3 segundos
+  useEffect(() => {
+    if (!toast) return;
+
+    const temporizador = setTimeout(() => {
+      setToast(null);
+    }, 3000);
+
+    return () => clearTimeout(temporizador);
+  }, [toast]);
+
+  // Mostrar una notificación
+  const mostrarToast = (mensaje, tipo = "success") => {
+    setToast({
+      mensaje,
+      tipo,
+      id: Date.now(),
+    });
+  };
+
   // Cargar favoritos desde localStorage
   useEffect(() => {
     try {
@@ -227,6 +250,12 @@ export default function Home() {
       );
     }
 
+    const yaExiste = favoritos.some(
+      (item) => item.idMeal === receta.idMeal
+    );
+
+    if (yaExiste) return;
+
     setFavoritos((actuales) => {
       if (actuales.some((item) => item.idMeal === receta.idMeal)) {
         return actuales;
@@ -238,6 +267,8 @@ export default function Home() {
     if (recetaCompleta.strMealThumb) {
       guardarImagenFavorita(recetaCompleta.strMealThumb);
     }
+
+    mostrarToast("¡Receta agregada a favoritos!", "success");
   };
 
   // Confirmar eliminación de favoritos
@@ -252,6 +283,8 @@ export default function Home() {
 
     setMostrarConfirmacion(false);
     setRecetaPendiente(null);
+
+    mostrarToast("Receta eliminada de favoritos", "delete");
   };
 
   // Rechazar eliminación de favoritos
@@ -359,6 +392,51 @@ export default function Home() {
     <main className="min-h-screen bg-[#fffaf3] text-[#30251f]">
 
       <InstallPrompt />
+
+      {/* NOTIFICACIONES TOAST */}
+      {toast && (
+        <div
+          key={toast.id}
+          role="alert"
+          aria-live="polite"
+          className={`fixed right-5 top-24 z-[200] flex max-w-[calc(100vw-2.5rem)] items-center gap-3 rounded-2xl border bg-white px-5 py-4 shadow-xl animate-in slide-in-from-right-5 fade-in duration-300 ${
+            toast.tipo === "success"
+              ? "border-green-200 text-green-700"
+              : "border-red-200 text-red-600"
+          }`}
+        >
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl ${
+              toast.tipo === "success"
+                ? "bg-green-100"
+                : "bg-red-100"
+            }`}
+          >
+            {toast.tipo === "success" ? "❤️" : "🗑️"}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-black">
+              {toast.tipo === "success"
+                ? "¡Excelente!"
+                : "Favoritos actualizados"}
+            </p>
+
+            <p className="mt-1 text-xs font-medium text-stone-500">
+              {toast.mensaje}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            aria-label="Cerrar notificación"
+            className="ml-1 shrink-0 text-xl text-stone-400 transition hover:text-stone-700"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* ENCABEZADO */}
       <header className="sticky top-0 z-50 border-b border-orange-100 bg-[#fffaf3]/95 backdrop-blur-md">
