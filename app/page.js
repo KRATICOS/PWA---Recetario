@@ -64,10 +64,14 @@ export default function Home() {
   // Guardar favoritos automáticamente
   useEffect(() => {
     if (favoritosCargados) {
-      localStorage.setItem(
-        "chefCasaFavoritos",
-        JSON.stringify(favoritos)
-      );
+      try {
+        localStorage.setItem(
+          "chefCasaFavoritos",
+          JSON.stringify(favoritos)
+        );
+      } catch (err) {
+        console.error("No se pudieron guardar los favoritos:", err);
+      }
     }
   }, [favoritos, favoritosCargados]);
 
@@ -161,8 +165,45 @@ export default function Home() {
     }
   };
 
-  // Agregar o quitar favoritos
-  const alternarFavorito = (receta) => {
+  // Consultar los detalles completos de una receta
+  const obtenerDetalleReceta = async (idMeal) => {
+    const respuesta = await fetch(
+      `https://www.themealdb.com/api/json/v1/1/lookup.php?i=${idMeal}`
+    );
+
+    if (!respuesta.ok) {
+      throw new Error("No se pudo consultar la receta.");
+    }
+
+    const data = await respuesta.json();
+
+    if (!data.meals || data.meals.length === 0) {
+      throw new Error("No encontramos los detalles de esta receta.");
+    }
+
+    return data.meals[0];
+  };
+
+  // Guardar una copia de la imagen en Cache Storage cuando sea posible
+  const guardarImagenFavorita = async (url) => {
+    if (!url || typeof window === "undefined" || !("caches" in window)) {
+      return;
+    }
+
+    try {
+      const cache = await caches.open("chefCasa-favorite-images-v1");
+      const respuesta = await fetch(url, { mode: "cors" });
+
+      if (respuesta.ok) {
+        await cache.put(url, respuesta.clone());
+      }
+    } catch (err) {
+      console.warn("No se pudo guardar la imagen en caché:", err);
+    }
+  };
+
+  // Agregar o quitar favoritos. Al agregarlos se intenta guardar la receta completa.
+  const alternarFavorito = async (receta) => {
     const existe = favoritos.some(
       (item) => item.idMeal === receta.idMeal
     );
@@ -173,7 +214,30 @@ export default function Home() {
       return;
     }
 
-    setFavoritos((actuales) => [...actuales, receta]);
+    let recetaCompleta = receta;
+
+    try {
+      if (!receta.strInstructions) {
+        recetaCompleta = await obtenerDetalleReceta(receta.idMeal);
+      }
+    } catch (err) {
+      console.warn(
+        "No se pudieron descargar los detalles. Se guardará la información disponible:",
+        err
+      );
+    }
+
+    setFavoritos((actuales) => {
+      if (actuales.some((item) => item.idMeal === receta.idMeal)) {
+        return actuales;
+      }
+
+      return [...actuales, recetaCompleta];
+    });
+
+    if (recetaCompleta.strMealThumb) {
+      guardarImagenFavorita(recetaCompleta.strMealThumb);
+    }
   };
 
   // Confirmar eliminación de favoritos
@@ -209,7 +273,7 @@ export default function Home() {
     setRecetaSeleccionada(null);
   };
 
-  // Abrir los detalles de una receta
+  // Abrir los detalles: primero buscar una copia completa local y luego consultar la API
   const abrirDetalle = async (receta) => {
     setVistaAnterior(vista);
     setVista("detalle");
@@ -218,24 +282,39 @@ export default function Home() {
     setErrorDetalle("");
 
     try {
-      const respuesta = await fetch(
-        `https://www.themealdb.com/api/json/v1/1/lookup.php?i=${receta.idMeal}`
+      const recetaGuardada = favoritos.find(
+        (item) => item.idMeal === receta.idMeal
       );
 
-      if (!respuesta.ok) {
-        throw new Error("No se pudo consultar la receta.");
+      // Las recetas completas guardadas en favoritos se muestran sin Internet
+      if (receta.strInstructions) {
+        setRecetaSeleccionada(receta);
+        return;
       }
 
-      const data = await respuesta.json();
-
-      if (!data.meals || data.meals.length === 0) {
-        throw new Error("No encontramos los detalles de esta receta.");
+      if (recetaGuardada?.strInstructions) {
+        setRecetaSeleccionada(recetaGuardada);
+        return;
       }
 
-      setRecetaSeleccionada(data.meals[0]);
+      // Compatibilidad con favoritos antiguos que solo guardaban datos básicos
+      const recetaCompleta = await obtenerDetalleReceta(receta.idMeal);
+      setRecetaSeleccionada(recetaCompleta);
+
+      setFavoritos((actuales) =>
+        actuales.map((item) =>
+          item.idMeal === recetaCompleta.idMeal
+            ? recetaCompleta
+            : item
+        )
+      );
+
+      if (recetaCompleta.strMealThumb) {
+        guardarImagenFavorita(recetaCompleta.strMealThumb);
+      }
     } catch (err) {
       setErrorDetalle(
-        err.message || "Error al cargar los detalles."
+        "Esta receta todavía no tiene sus detalles guardados. Conéctate a Internet una vez, abre la receta y vuelve a guardarla en favoritos para consultarla después sin conexión."
       );
     } finally {
       setLoadingDetalle(false);
